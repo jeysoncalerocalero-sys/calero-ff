@@ -1,0 +1,59 @@
+name: CaleroFF
+
+on:
+  workflow_dispatch:
+    inputs:
+      ff_url:
+        description: "URL directa del APK o XAPK de Free Fire"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Herramientas de firma
+        run: echo "$(ls -d $ANDROID_HOME/build-tools/* | tail -n1)" >> $GITHUB_PATH
+
+      - name: Descargar baksmali y smali
+        run: |
+          mkdir -p tools
+          wget -q -O tools/baksmali.jar https://github.com/baksmali/smali/releases/download/2.5.2/baksmali-2.5.2.jar
+          wget -q -O tools/smali.jar    https://github.com/baksmali/smali/releases/download/2.5.2/smali-2.5.2.jar
+
+      - name: Compilar el menu
+        run: |
+          cmake -S src -B build \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j
+
+      - name: Descargar Free Fire
+        run: wget -q -O ff.xapk "${{ github.event.inputs.ff_url }}"
+
+      - name: Inyectar y firmar
+        env:
+          KS: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          echo "$KS" | base64 -d > calero.jks
+          chmod +x scripts/inject.sh
+          bash scripts/inject.sh ff.xapk build/libphantom.so CaleroFF_MOD.apk calero.jks
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CaleroFF-APK
+          path: CaleroFF_MOD.apk
